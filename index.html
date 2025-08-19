@@ -1,0 +1,729 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Calculadora Bigode Tips</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+
+    <!-- LOGO BIGODE BETS -->
+    <div class="logo" style="text-align:center; margin-bottom:20px;">
+      <img src="bigode-bets.png" alt="Bigode Bets" style="max-width:200px;">
+      <div style="margin-top:8px; font-size:22px; font-weight:900; color:var(--accent);">
+        Bigode Tips
+      </div>
+    </div>
+
+    <!-- MENU / ABAS -->
+    <div class="menu">
+      <button class="tab" id="tab-dist">Distribuição Bet</button>
+      <button class="tab" id="tab-fblay">Freebet + Lay</button>
+      <button class="tab active" id="tab-fb">Freebet</button>
+    </div>
+
+    <!-- TABELA (reutilizada por todas abas) -->
+    <table id="tb">
+      <thead>
+        <tr id="thead-row"></tr>
+      </thead>
+      <tbody id="body"></tbody>
+    </table>
+
+    <!-- CONTROLES -->
+    <div class="controls">
+      <button id="add">➕ Adicionar Aposta</button>
+      <button id="distribuir">Distribuir Apostas</button>
+      <span id="msg" class="warn" hidden></span>
+    </div>
+
+    <!-- RESUMO -->
+    <div class="summary">
+      <div class="box">
+        <div class="k">Total Investido</div>
+        <div id="total" class="v">R$ 0,00</div>
+      </div>
+      <div class="box">
+        <div class="k">Lucro Mínimo</div>
+        <div id="lucmin" class="v">R$ 0,00</div>
+      </div>
+      <div class="box">
+        <div class="k">Lucro (%)</div>
+        <div id="lucpct" class="v">0,00%</div>
+      </div>
+      <div class="box" id="box-conv">
+        <div class="k">Efetividade</div>
+        <div id="conv" class="v">0,00%</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   CONFIGURAÇÃO DE ABAS
+   ============================================================ */
+const TAB_CONFIG = {
+  freebet: {
+    cols: ['fb', 'odd', 'valor', 'lucro', 'remover'],
+    labels: { fb:'Freebet', odd:'Odds', valor:'Valor', lucro:'Lucro', remover:'' }
+  },
+  dist: {
+    cols: ['idx','base','tipo','odd','com','valor','lucro','remover'],
+    labels: {
+      idx:'Nº', base:'Base', tipo:'Tipo', odd:'Odds',
+      com:'Comissão', valor:'Valor / Responsabilidade', lucro:'Lucro', remover:''
+    }
+  },
+  fblay: {
+    cols: ['idx','tipo','odd','com','valor','lucro','remover'],
+    labels: {
+        idx:'Nº', tipo:'Tipo', odd:'Odds',
+        com:'Comissão', valor:'Valor / Responsabilidade', lucro:'Lucro', remover:''}
+  }
+};
+
+let abaAtual = 'freebet';
+
+const theadRow = document.getElementById('thead-row');
+const tbody = document.getElementById('body');
+const msg = document.getElementById('msg');
+const fmt = v => (isFinite(v)? v : 0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+const fmtNum = v => (isFinite(v)? v : 0).toLocaleString('pt-BR',{minimumFractionDigits:2, maximumFractionDigits:2});
+
+/* ---------- Cabeçalho dinâmico ---------- */
+function renderHeader(){
+  theadRow.innerHTML = '';
+  const { cols, labels } = TAB_CONFIG[abaAtual];
+  cols.forEach(key=>{
+    const th = document.createElement('th');
+    th.textContent = labels[key] ?? key;
+    theadRow.appendChild(th);
+  });
+}
+
+/* ============================================================
+   FREEBET (como estava)
+   ============================================================ */
+function novaLinhaFreebet({isFreebet=false, odd='', valor=''} = {}){
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td><input type="checkbox" class="fb" ${isFreebet?'checked':''}></td>
+    <td><input type="number" class="odd" min="1" step="0.01" value="${odd}" placeholder="Odds"></td>
+    <td><input type="number" class="valor" min="0" step="0.01" value="${valor}" placeholder="Valor"></td>
+    <td class="lucro">R$ 0,00</td>
+    <td class="row-actions"><button class="del">🗑</button></td>
+  `;
+  tbody.appendChild(tr);
+}
+function lerFreebet(){
+  return [...tbody.querySelectorAll('tr')].map(tr => ({
+    tr,
+    freebet: !!tr.querySelector('.fb') && tr.querySelector('.fb').checked,
+    odd: parseFloat(tr.querySelector('.odd')?.value) || 0,
+    valor: parseFloat(tr.querySelector('.valor')?.value) || 0
+  }));
+}
+function atualizarFreebet(){
+  const rows = lerFreebet();
+  if (!rows.some(r=>r.freebet) && rows.length){
+    const fb = rows[0].tr.querySelector('.fb'); fb.checked = true; rows[0].freebet = true;
+  }
+
+  const S = rows.filter(r=>!r.freebet).reduce((a,r)=>a+(r.valor||0),0);
+  const lucros = [];
+
+  rows.forEach(r=>{
+    const lucro = r.freebet ? ((r.odd - 1) * r.valor) - S : (r.odd * r.valor) - S;
+    const cell = r.tr.querySelector('.lucro');
+    cell.textContent = fmt(lucro);
+    cell.style.color = (lucro >= 0) ? "var(--ok)" : "var(--bad)";
+    lucros.push(lucro);
+  });
+
+  // Resumo padrão
+  document.getElementById('total').textContent = fmt(S);
+  const min = lucros.length ? Math.min(...lucros) : 0;
+  const lucMinEl = document.getElementById('lucmin');
+  lucMinEl.textContent = fmt(min);
+  lucMinEl.classList.remove('ok','bad');
+  lucMinEl.classList.add(min >= 0 ? 'ok' : 'bad');
+  document.getElementById('lucpct').textContent =
+    (S>0? (100*min/S):0).toLocaleString('pt-BR',{maximumFractionDigits:2}) + '%';
+
+  // ➜ Efetividade = Lucro Mínimo / (soma das Freebets)
+  const sumFB = rows.filter(r=>r.freebet).reduce((a,r)=>a+(r.valor||0),0);
+  const convPct = sumFB>0 ? (100*min/sumFB) : 0;
+  const convEl = document.getElementById('conv');
+  convEl.textContent = (isFinite(convPct)? convPct:0).toLocaleString('pt-BR',{maximumFractionDigits:2}) + '%';
+  convEl.style.color = (convPct >= 70) ? 'var(--ok)' : 'var(--accent)';
+}
+function distribuirFreebet(){
+  const rows = lerFreebet();
+  const fbs = rows.filter(r=>r.freebet);
+  const nfb = rows.filter(r=>!r.freebet);
+
+  msg.hidden = true; msg.textContent='';
+
+  if (fbs.length !== 1){ msg.hidden=false; msg.textContent='Selecione exatamente 1 Freebet.'; return; }
+  if (nfb.length === 0){ msg.hidden=false; msg.textContent='Adicione ao menos 1 linha não-Freebet.'; return; }
+
+  const fb = fbs[0];
+  const F = (fb.odd - 1) * (fb.valor || 0);
+  nfb.forEach(r=>{
+    const v = F / r.odd;
+    r.tr.querySelector('.valor').value = (isFinite(v)? v:0).toFixed(2);
+  });
+  fb.tr.querySelector('.valor').value = (fb.valor || 0).toFixed(2);
+  atualizarFreebet();
+}
+
+/* ============================================================
+   DISTRIBUIÇÃO BET (Back/Lay com Base + Comissão)
+   ============================================================ */
+function novaLinhaDist({tipo='back', odd='', com='', valor=''} = {}){
+  if (com === '') com = (tipo==='lay' ? 4.5 : 0);
+
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td class="idx"></td>
+    <td><input type="radio" name="baseDist" class="base"></td>
+    <td>
+      <div class="tipo-pills">
+        <button type="button" class="pill ${tipo==='back'?'active':''}" data-type="back">BACK</button>
+        <button type="button" class="pill ${tipo==='lay'?'active':''}"  data-type="lay">LAY</button>
+      </div>
+    </td>
+    <td><input type="number" class="odd" min="1" step="0.01" value="${odd}" placeholder="Odds"></td>
+    <td>
+      <input type="number" class="com" min="0" step="0.1" value="${com}" placeholder="0">
+      <span class="muted">%</span>
+    </td>
+    <td>
+      <div>
+        <input type="number" class="valor" min="0" step="0.01" value="${valor}" placeholder="${tipo==='lay'?'Responsabilidade':'Valor'}">
+        <div class="muted hint" style="font-size:12px;margin-top:6px;text-align:left;"></div>
+      </div>
+    </td>
+    <td class="lucro">R$ 0,00</td>
+    <td class="row-actions"><button class="del">🗑</button></td>
+  `;
+  tbody.appendChild(tr);
+  renumerarDist();
+}
+function renumerarDist(){
+  [...tbody.querySelectorAll('tr')].forEach((tr,i)=>{
+    const idx = tr.querySelector('.idx');
+    if (idx) idx.textContent = (i+1).toString();
+  });
+}
+function lerDist(){
+  return [...tbody.querySelectorAll('tr')].map(tr => {
+    const tipo = tr.querySelector('.pill.active')?.dataset.type || 'back';
+    const odd  = parseFloat(tr.querySelector('.odd')?.value) || 0;
+    const com  = parseFloat(tr.querySelector('.com')?.value) || 0;
+    const valor= parseFloat(tr.querySelector('.valor')?.value) || 0; // valor (back) ou responsabilidade (lay)
+    return {
+      tr, tipo, odd, com, valor,
+      base: !!tr.querySelector('.base') && tr.querySelector('.base').checked
+    };
+  });
+}
+/* retorno “puro” (antes dos custos dos outros):
+   - Back: odd * valor
+   - Lay: lucro quando Lay vence = stake*(1-com) = [valor/(odd-1)]*(1-com)
+*/
+function fatorRetorno(row){
+  if (row.tipo==='back') return row.odd; 
+  // Lay: retorno por unidade de responsabilidade = 1 + (1 - comissão)/(odd-1)
+  const denom = (row.odd - 1);
+  const k = 1 + ((1 - (row.com/100)) / (denom > 0 ? denom : Infinity));
+  return isFinite(k) ? k : 0;
+}
+function retorno(row){
+  // retorno bruto do cenário em que esta linha vence
+  return fatorRetorno(row) * (row.valor || 0);
+}
+
+/* Atualização com:
+   S_total = Σ back + Σ responsabilidades
+   S_lay   = Σ responsabilidades − Σ back
+*/
+function atualizarDist(){
+  const rows = lerDist();
+  if (!rows.length) return;
+
+  // placeholders corretos
+  rows.forEach(r=>{
+    const vInput = r.tr.querySelector('.valor');
+    if (vInput) vInput.placeholder = (r.tipo==='lay' ? 'Responsabilidade' : 'Valor');
+  });
+
+  const hasBase = rows.some(r => r.base);
+
+  // Sem base: lucros zerados, mas total investido e stake de LAY mostrados
+  if (!hasBase){
+    const sumBack    = rows.filter(r=>r.tipo==='back').reduce((a,r)=>a+(r.valor||0),0);
+    const sumLayResp = rows.filter(r=>r.tipo==='lay').reduce((a,r)=>a+(r.valor||0),0);
+    const S_total    = sumBack + sumLayResp;
+
+    rows.forEach(r=>{
+      const hint = r.tr.querySelector('.hint');
+      if (r.tipo==='lay'){
+        const stake = (r.odd>1) ? (r.valor/(r.odd-1)) : 0;
+        if (hint) hint.textContent = r.valor ? `Stake: ${fmtNum(stake)}` : '';
+      }else{
+        if (hint) hint.textContent = '';
+      }
+      const cell = r.tr.querySelector('.lucro');
+      cell.textContent = fmt(0);
+      cell.style.color = "var(--ok)";
+    });
+
+    document.getElementById('total').textContent = fmt(S_total);
+    const el = document.getElementById('lucmin');
+    el.textContent = fmt(0);
+    el.classList.remove('ok','bad');
+    document.getElementById('lucpct').textContent = '0,00%';
+
+    // ➜ Efetividade não se aplica nesta aba
+    const convEl = document.getElementById('conv');
+    convEl.textContent = '—';
+    convEl.style.color = 'var(--muted)';
+    return;
+  }
+
+  // Com base: iguala lucro das outras linhas
+  const base = rows.find(r=>r.base);
+  const k_b  = fatorRetorno(base);
+  const v_b  = base.valor;
+
+  if (k_b > 0 && v_b > 0){
+    rows.forEach(r=>{
+      if (r === base) return;
+      const k_j = fatorRetorno(r);
+      const v_j = (k_b * v_b) / (k_j || Infinity);
+      if (isFinite(v_j)){
+        const inp = r.tr.querySelector('.valor');
+        if (inp){
+          inp.value = v_j.toFixed(2);
+          r.valor   = parseFloat(inp.value) || 0;
+        }
+      }
+    });
+  }
+
+  const sumBack    = rows.filter(r=>r.tipo==='back').reduce((a,r)=>a+(r.valor||0),0);
+  const sumLayResp = rows.filter(r=>r.tipo==='lay').reduce((a,r)=>a+(r.valor||0),0);
+  const S_total    = sumBack + sumLayResp;
+
+  const lucros = [];
+  rows.forEach(r=>{
+    const hint = r.tr.querySelector('.hint');
+    if (r.tipo==='lay'){
+      const stake = (r.odd>1) ? (r.valor/(r.odd-1)) : 0;
+      if (hint) hint.textContent = r.valor ? `Stake: ${fmtNum(stake)}` : '';
+    }else{
+      if (hint) hint.textContent = '';
+    }
+
+    const ret   = retorno(r);
+    const lucro = ret - S_total;
+
+    const cell = r.tr.querySelector('.lucro');
+    cell.textContent = fmt(lucro);
+    cell.style.color = (lucro >= 0) ? "var(--ok)" : "var(--bad)";
+    lucros.push(lucro);
+  });
+
+  document.getElementById('total').textContent = fmt(S_total);
+  const min = lucros.length ? Math.min(...lucros) : 0;
+  const el  = document.getElementById('lucmin');
+  el.textContent = fmt(min);
+  el.classList.remove('ok','bad');
+  el.classList.add(min >= 0 ? 'ok' : 'bad');
+  document.getElementById('lucpct').textContent =
+    (S_total>0 ? (100*min/S_total) : 0).toLocaleString('pt-BR',{maximumFractionDigits:2}) + '%';
+
+  // ➜ Efetividade não se aplica nesta aba
+  const convEl = document.getElementById('conv');
+  convEl.textContent = '—';
+  convEl.style.color = 'var(--muted)';
+}
+
+/* --------- Clicar na BASE: caso 2 linhas (1 Back + 1 Lay), preencher a outra --------- */
+function onBaseChange(){
+  const rows = lerDist();
+  const base = rows.find(r=>r.base);
+  if (!base) { atualizarDist(); return; }
+
+  if (rows.length === 2){
+    const other = rows.find(r=>!r.base);
+    if (!other) return;
+
+    // Base Back → calcula responsabilidade do Lay
+    if (base.tipo === 'back' && other.tipo === 'lay'){
+      const ob = base.odd, vb = base.valor;
+      const ol = other.odd, c = (other.com/100);
+      if (ob>0 && vb>0 && ol>1){
+        const L = (ob * vb * (ol - 1)) / ((ol - 1) + (1 - c));   // responsabilidade
+        other.tr.querySelector('.valor').value = (isFinite(L)? L:0).toFixed(2);
+      }
+    }
+    // Base Lay → calcula valor do Back
+    if (base.tipo === 'lay' && other.tipo === 'back'){
+      const ol = base.odd, c = (base.com/100), Lb = base.valor;
+      const s  = (ol>1) ? Lb/(ol-1) : 0;                          // stake
+      const ob = other.odd;
+      if (Lb>0 && ob>0 && ol>1){
+        const Vb = (Lb + s*(1 - c)) / ob;                         // valor back
+        other.tr.querySelector('.valor').value = (isFinite(Vb)? Vb:0).toFixed(2);
+      }
+    }
+  }
+  atualizarDist();
+}
+
+/* ===== (Opcional) Distribuir — mantém genérico; clique na Base já resolve o caso 2 linhas ===== */
+function distribuirDist(){
+  const rows = lerDist();
+  const base = rows.find(r=>r.base);
+  const outros = rows.filter(r=>!r.base);
+
+  msg.hidden = true; msg.textContent='';
+
+  if (!base){ msg.hidden=false; msg.textContent='Selecione 1 linha como Base.'; return; }
+  if (outros.length === 0){ msg.hidden=false; msg.textContent='Adicione ao menos 1 outra linha.'; return; }
+
+  // Para 2 linhas Back/Lay o clique na base já calcula; aqui deixo sem alterar.
+  // (Podemos expandir depois para múltiplas linhas.)
+  atualizarDist();
+}
+
+/* ========================== FREEBET + LAY ========================== */
+// 2 linhas fixas: [1] FREEBET (sem comissão)  [2] LAY (com comissão)
+function novaLinhaFBLay({kind='freebet', odd='', com='', valor=''} = {}){
+  // com padrão: freebet=0 (desabilitado), lay=4.5
+  if (kind==='lay' && (com==='' || com===undefined)) com = 4.5;
+  if (kind==='freebet') com = 0;
+
+  const isLay = kind==='lay';
+  const tr = document.createElement('tr');
+  tr.dataset.kind = kind;
+  tr.innerHTML = `
+    <td class="idx"></td>
+    <td>
+      <div class="tipo-pills">
+        ${kind==='freebet'
+          ? `<span class="pill active" data-type="back" style="pointer-events:none">FREEBET</span>`
+          : `<span class="pill active" data-type="lay"  style="pointer-events:none">LAY</span>`
+        }
+      </div>
+    </td>
+    <td><input type="number" class="odd" min="1" step="0.01" value="${odd}" placeholder="Odds"></td>
+    <td>
+      ${isLay
+        ? `<input type="number" class="com" min="0" step="0.1" value="${com}" placeholder="4.5"><span class="muted">%</span>`
+        : `<span class="muted">—</span>`
+      }
+    </td>
+    <td>
+      <div>
+        <input type="number" class="valor" min="0" step="0.01" value="${valor}" placeholder="${isLay?'Responsabilidade':'Valor'}" ${isLay?'':'autocomplete="off"'} />
+        ${isLay ? `<div class="muted hint" style="font-size:12px;margin-top:6px;text-align:left;"></div>` : ``}
+      </div>
+    </td>
+    <td class="lucro">R$ 0,00</td>
+    <td class="row-actions"><button class="del" disabled title="Fixado nesta aba">🗑</button></td>
+  `;
+  tbody.appendChild(tr);
+  renumerarFBLay();
+}
+
+function renumerarFBLay(){
+  [...tbody.querySelectorAll('tr')].forEach((tr,i)=>{
+    const idx = tr.querySelector('.idx');
+    if (idx) idx.textContent = (i+1).toString();
+  });
+}
+
+function lerFBLay(){
+  return [...tbody.querySelectorAll('tr')].map(tr=>{
+    const kind = tr.dataset.kind; // 'freebet' | 'lay'
+    const odd  = parseFloat(tr.querySelector('.odd')?.value) || 0;
+    const comEl= tr.querySelector('.com');
+    const com  = comEl ? (parseFloat(comEl.value) || 0) : 0;
+    const valor= parseFloat(tr.querySelector('.valor')?.value) || 0;
+    return { tr, kind, odd, com, valor };
+  });
+}
+
+/* Cálculo:
+   A = (odd_fb - 1) * valor_fb
+   L = A * (ol-1) / ((ol-1) + (1 - com))
+   stake = L / (ol-1)
+   lucro_fb = A - L
+   lucro_lay = stake * (1 - com)
+   total = L
+*/
+function atualizarFBLay(){
+  const rows = lerFBLay();
+  if (rows.length < 2) return;
+
+  const fb  = rows.find(r=>r.kind==='freebet');
+  const lay = rows.find(r=>r.kind==='lay');
+
+  fb.tr.querySelector('.valor').placeholder  = 'Valor';
+  lay.tr.querySelector('.valor').placeholder = 'Responsabilidade';
+
+  const ob = fb.odd, vb = fb.valor;
+  const ol = lay.odd, c = (lay.com/100);
+
+  let L = parseFloat(lay.tr.querySelector('.valor').value) || 0;
+
+  // calcula responsabilidade automaticamente (se houver dados mínimos)
+  if (ob>1 && vb>0 && ol>1){
+    const A = (ob - 1) * vb;
+    const denom = (ol - 1) + (1 - c);
+    if (denom > 0){
+      L = A * (ol - 1) / denom;
+      const valEl = lay.tr.querySelector('.valor');
+      valEl.value = (isFinite(L)? L:0).toFixed(2);
+    }
+  }
+
+  const stake = (ol>1) ? (L/(ol-1)) : 0;
+  const hint  = lay.tr.querySelector('.hint');
+  if (hint) hint.textContent = (L>0 && ol>1) ? `Stake: ${stake.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})}` : '';
+
+  // lucros
+  const lucro_fb  = ((ob>1 && vb>0) ? ((ob - 1)*vb - L) : 0);
+  const lucro_lay = (L>0 && ol>1) ? (stake * (1 - c)) : 0;
+
+  fb.tr.querySelector('.lucro').textContent  = fmt(lucro_fb);
+  lay.tr.querySelector('.lucro').textContent = fmt(lucro_lay);
+  fb.tr.querySelector('.lucro').style.color  = (lucro_fb  >= 0) ? "var(--ok)" : "var(--bad)";
+  lay.tr.querySelector('.lucro').style.color = (lucro_lay >= 0) ? "var(--ok)" : "var(--bad)";
+
+  // resumo
+  const total = L; // investido = responsabilidade
+  document.getElementById('total').textContent = fmt(total);
+
+  const min = Math.min(lucro_fb || 0, lucro_lay || 0);
+  const el  = document.getElementById('lucmin');
+  el.textContent = fmt(min);
+  el.classList.remove('ok','bad');
+  el.classList.add(min >= 0 ? 'ok' : 'bad');
+
+  document.getElementById('lucpct').textContent =
+    (total>0 ? (100*min/total) : 0).toLocaleString('pt-BR',{maximumFractionDigits:2}) + '%';
+
+  // ➜ Efetividade = Lucro Mínimo / Valor da Freebet
+  const convPct = vb>0 ? (100*min/vb) : 0;
+  const convEl = document.getElementById('conv');
+  convEl.textContent = (isFinite(convPct)? convPct:0).toLocaleString('pt-BR',{maximumFractionDigits:2}) + '%';
+  convEl.style.color = (convPct >= 70) ? 'var(--ok)' : 'var(--accent)';
+}
+
+/* ============================================================
+   ABSTRAÇÃO: criação de linha conforme aba
+   ============================================================ */
+function novaLinhaConfig(init={}){
+  if (abaAtual==='freebet') return novaLinhaFreebet(init);
+  if (abaAtual==='dist')    { novaLinhaDist(init); renumerarDist(); return; }
+  if (abaAtual==='fblay')   { /* linhas fixas; botão Add fica oculto */ return; }
+  const tr = document.createElement('tr');
+  tr.innerHTML = `<td colspan="${TAB_CONFIG.fblay.cols.length}" class="muted">Em breve…</td>`;
+  tbody.appendChild(tr);
+}
+
+/* ============================================================
+   TROCA DE ABA
+   ============================================================ */
+function switchTab(key){
+  abaAtual = key;
+  document.querySelectorAll('.tab').forEach(b=>b.classList.remove('active'));
+  ({freebet:'#tab-fb', dist:'#tab-dist', fblay:'#tab-fblay'})[key] &&
+    document.querySelector(({freebet:'#tab-fb', dist:'#tab-dist', fblay:'#tab-fblay'})[key]).classList.add('active');
+
+  renderHeader();
+  tbody.innerHTML = '';
+
+  const btnAdd  = document.getElementById('add');
+  const btnDist = document.getElementById('distribuir');
+  const controls= document.querySelector('.controls');
+  const boxConv = document.getElementById('box-conv');
+
+  if (abaAtual==='freebet'){
+    // botões
+    btnAdd.style.display  = '';
+    btnDist.style.display = '';
+    controls.classList.remove('single');
+    // Efetividade visível
+    if (boxConv) boxConv.style.display = '';
+    // linhas
+    novaLinhaConfig({isFreebet:true});
+    novaLinhaConfig();
+  } else if (abaAtual==='dist'){
+    // só "Adicionar", centralizado
+    btnAdd.style.display  = '';
+    btnDist.style.display = 'none';
+    controls.classList.add('single');
+    // esconder Efetividade
+    if (boxConv) boxConv.style.display = 'none';
+    // linhas iniciais
+    novaLinhaConfig({tipo:'back'});
+    novaLinhaConfig({tipo:'lay'});
+  } else if (abaAtual==='fblay'){
+    // sem botões nesta aba
+    btnAdd.style.display  = 'none';
+    btnDist.style.display = 'none';
+    controls.classList.remove('single');
+    // Efetividade visível
+    if (boxConv) boxConv.style.display = '';
+    // duas linhas fixas
+    novaLinhaFBLay({kind:'freebet'});
+    novaLinhaFBLay({kind:'lay'});
+  }
+
+  msg.hidden = true; msg.textContent='';
+  atualizar();
+}
+
+/* ============================================================
+   ATUALIZAÇÃO GENÉRICA
+   ============================================================ */
+function atualizar(){
+  if (abaAtual==='freebet') return atualizarFreebet();
+  if (abaAtual==='dist')    return atualizarDist();
+  if (abaAtual==='fblay')   return atualizarFBLay();
+  // outras abas (placeholder)
+  [...tbody.querySelectorAll('.lucro')].forEach(c=>c.textContent='—');
+  document.getElementById('total').textContent = 'R$ 0,00';
+  const lm = document.getElementById('lucmin');
+  lm.textContent = 'R$ 0,00'; lm.classList.remove('ok','bad');
+  document.getElementById('lucpct').textContent = '0,00%';
+}
+
+/* ============================================================
+   EVENTOS
+   ============================================================ */
+document.getElementById('tab-fb').onclick    = ()=> switchTab('freebet');
+document.getElementById('tab-dist').onclick  = ()=> switchTab('dist');
+document.getElementById('tab-fblay').onclick = ()=> switchTab('fblay');
+
+document.addEventListener('input', e=>{
+  if (!e.target.closest('#body')) return;
+
+  if (abaAtual==='dist' && e.target.classList.contains('tipo')){
+    const tr = e.target.closest('tr');
+    const tipo = e.target.value;
+    const vInput = tr.querySelector('.valor');
+    const comInput = tr.querySelector('.com');
+    const hint = tr.querySelector('.hint');
+
+    vInput.placeholder = (tipo==='lay' ? 'Responsabilidade' : 'Valor');
+
+    // ➜ regra pedida: se mudar para BACK, comissão = 0 sempre
+    if (tipo === 'back') {
+      comInput.value = '0';
+      if (hint) hint.textContent = ''; // limpa "Stake"
+    } else {
+      // ao mudar para LAY, se estiver vazio ou 0, define padrão 4.5
+      if (comInput.value === '' || parseFloat(comInput.value) === 0) {
+        comInput.value = '4.5';
+      }
+    }
+  }
+
+  atualizar();
+});
+
+// FORMATA o valor da linha base em 2 casas e recalcula tudo
+document.addEventListener('change', e=>{
+  if (abaAtual==='dist' && e.target.classList.contains('base')){
+    const tr = e.target.closest('tr');
+    const valInput = tr.querySelector('.valor');
+
+    // se tiver algo digitado (ex.: "2"), vira "2.00" (navegadores pt-BR exibem "2,00")
+    if (valInput && valInput.value !== ''){
+      const num = parseFloat(String(valInput.value).replace(',', '.'));
+      if (!isNaN(num)) valInput.value = num.toFixed(2);
+    }
+
+    // recalcula (e, no caso 2 linhas, preenche a outra automaticamente)
+    atualizarDist();
+  }
+});
+
+// Freebet + Lay: formatar o "Valor" da FREEBET para 2 casas ao finalizar a digitação
+document.addEventListener('change', (e)=>{
+  if (abaAtual !== 'fblay') return;
+  if (!e.target.matches('tbody tr[data-kind="freebet"] .valor')) return;
+
+  const inp = e.target;
+  const num = parseFloat(String(inp.value).replace(',', '.'));
+  if (!isNaN(num)) inp.value = num.toFixed(2);  // ex.: "50" -> "50.00" (navegador pt-BR mostra "50,00")
+  atualizarFBLay();
+});
+
+document.addEventListener('click', e=>{
+  if (e.target.id==='add'){ novaLinhaConfig(); atualizar(); }
+  if (e.target.id==='distribuir'){
+    if (abaAtual==='freebet')   distribuirFreebet();
+    else if (abaAtual==='dist') distribuirDist();
+    else alert('Distribuir será implementado quando definirmos a lógica desta aba.');
+  }
+  if (e.target.classList.contains('del')){
+    e.target.closest('tr').remove();
+    if (abaAtual==='dist'){ renumerarDist(); }
+    atualizar();
+  }
+});
+
+// Toggle Back/Lay nas pílulas + recalcular
+document.addEventListener('click', (e)=>{
+  if (abaAtual !== 'dist') return;
+  const btn = e.target.closest('.pill');
+  if (!btn) return;
+
+  const tr = btn.closest('tr');
+
+  // alterna ativo na linha
+  tr.querySelectorAll('.pill').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+
+  // aplica regras da troca de tipo
+  const tipo     = btn.dataset.type;                   // "back" | "lay"
+  const vInput   = tr.querySelector('.valor');
+  const comInput = tr.querySelector('.com');
+  const hint     = tr.querySelector('.hint');
+
+  vInput.placeholder = (tipo==='lay' ? 'Responsabilidade' : 'Valor');
+
+  if (tipo === 'back'){
+    // comissão sempre 0 para Back
+    comInput.value = '0';
+    if (hint) hint.textContent = ''; // some o "Stake"
+  } else {
+    // se vazio ou 0, padrão 4.5 para Lay
+    if (comInput.value === '' || parseFloat(comInput.value) === 0){
+      comInput.value = '4.5';
+    }
+  }
+
+  atualizar(); // mantém todos os cálculos como estão
+});
+
+/* ============================================================
+   INICIALIZAÇÃO
+   ============================================================ */
+renderHeader();
+switchTab('dist'); // abre na aba Distribuição Bet para testar
+</script>
+</body>
+</html>
