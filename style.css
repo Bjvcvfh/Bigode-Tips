@@ -230,3 +230,13 @@ input[type="number"].com{
 .controls.single #distribuir{
   display: none !important;
 }
+
+/* Travar layout “desktop” no mobile */
+html, body {
+  min-width: 1280px;        /* mesmo número da meta viewport */
+}
+
+.wrap {
+  min-width: 1280px;        /* evita o container encolher */
+  margin: 0 auto;           /* centraliza em telas maiores que 1280 */
+}
