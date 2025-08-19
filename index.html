@@ -257,81 +257,60 @@ function atualizarDist(){
   const rows = lerDist();
   if (!rows.length) return;
 
-  // placeholders corretos
+  // placeholdes corretos
   rows.forEach(r=>{
     const vInput = r.tr.querySelector('.valor');
     if (vInput) vInput.placeholder = (r.tipo==='lay' ? 'Responsabilidade' : 'Valor');
   });
 
-  const hasBase = rows.some(r => r.base);
+  // força comissão = 0 para BACK
+  rows.forEach(r=>{
+    if (r.tipo === 'back') {
+      const comEl = r.tr.querySelector('.com');
+      if (comEl && (parseFloat(comEl.value) || 0) !== 0) {
+        comEl.value = '0';
+        r.com = 0;
+      }
+    }
+  });
 
-  // Sem base: lucros zerados, mas total investido e stake de LAY mostrados
+  const hasBase   = rows.some(r => r.base);
+  const sumBack   = rows.filter(r=>r.tipo==='back').reduce((a,r)=>a+(r.valor||0),0);
+  const sumLay    = rows.filter(r=>r.tipo==='lay').reduce((a,r)=>a+(r.valor||0),0);
+  const S_total   = sumBack + sumLay;
+
+  // Sem base: lucros zerados (mas total e stake dos Lays aparecem)
   if (!hasBase){
-    const sumBack    = rows.filter(r=>r.tipo==='back').reduce((a,r)=>a+(r.valor||0),0);
-    const sumLayResp = rows.filter(r=>r.tipo==='lay').reduce((a,r)=>a+(r.valor||0),0);
-    const S_total    = sumBack + sumLayResp;
-
     rows.forEach(r=>{
       const hint = r.tr.querySelector('.hint');
       if (r.tipo==='lay'){
         const stake = (r.odd>1) ? (r.valor/(r.odd-1)) : 0;
         if (hint) hint.textContent = r.valor ? `Stake: ${fmtNum(stake)}` : '';
-      }else{
-        if (hint) hint.textContent = '';
-      }
+      } else if (hint) { hint.textContent = ''; }
+
       const cell = r.tr.querySelector('.lucro');
       cell.textContent = fmt(0);
       cell.style.color = "var(--ok)";
     });
-
     document.getElementById('total').textContent = fmt(S_total);
     const el = document.getElementById('lucmin');
     el.textContent = fmt(0);
     el.classList.remove('ok','bad');
     document.getElementById('lucpct').textContent = '0,00%';
-
-    // ➜ Efetividade não se aplica nesta aba
-    const convEl = document.getElementById('conv');
-    convEl.textContent = '—';
-    convEl.style.color = 'var(--muted)';
+    // Efetividade fica oculta nesta aba pelo switchTab
     return;
   }
 
-  // Com base: iguala lucro das outras linhas
-  const base = rows.find(r=>r.base);
-  const k_b  = fatorRetorno(base);
-  const v_b  = base.valor;
-
-  if (k_b > 0 && v_b > 0){
-    rows.forEach(r=>{
-      if (r === base) return;
-      const k_j = fatorRetorno(r);
-      const v_j = (k_b * v_b) / (k_j || Infinity);
-      if (isFinite(v_j)){
-        const inp = r.tr.querySelector('.valor');
-        if (inp){
-          inp.value = v_j.toFixed(2);
-          r.valor   = parseFloat(inp.value) || 0;
-        }
-      }
-    });
-  }
-
-  const sumBack    = rows.filter(r=>r.tipo==='back').reduce((a,r)=>a+(r.valor||0),0);
-  const sumLayResp = rows.filter(r=>r.tipo==='lay').reduce((a,r)=>a+(r.valor||0),0);
-  const S_total    = sumBack + sumLayResp;
-
+  // Com base: apenas calcula lucros (NÃO reescreve os inputs)
   const lucros = [];
   rows.forEach(r=>{
     const hint = r.tr.querySelector('.hint');
     if (r.tipo==='lay'){
       const stake = (r.odd>1) ? (r.valor/(r.odd-1)) : 0;
       if (hint) hint.textContent = r.valor ? `Stake: ${fmtNum(stake)}` : '';
-    }else{
-      if (hint) hint.textContent = '';
-    }
+    } else if (hint) { hint.textContent = ''; }
 
-    const ret   = retorno(r);
+    const ret   = retorno(r);       // Back: odd*valor; Lay: responsabilidade + stake*(1-com)
     const lucro = ret - S_total;
 
     const cell = r.tr.querySelector('.lucro');
@@ -340,6 +319,7 @@ function atualizarDist(){
     lucros.push(lucro);
   });
 
+  // Resumo
   document.getElementById('total').textContent = fmt(S_total);
   const min = lucros.length ? Math.min(...lucros) : 0;
   const el  = document.getElementById('lucmin');
@@ -348,11 +328,6 @@ function atualizarDist(){
   el.classList.add(min >= 0 ? 'ok' : 'bad');
   document.getElementById('lucpct').textContent =
     (S_total>0 ? (100*min/S_total) : 0).toLocaleString('pt-BR',{maximumFractionDigits:2}) + '%';
-
-  // ➜ Efetividade não se aplica nesta aba
-  const convEl = document.getElementById('conv');
-  convEl.textContent = '—';
-  convEl.style.color = 'var(--muted)';
 }
 
 /* --------- Clicar na BASE: caso 2 linhas (1 Back + 1 Lay), preencher a outra --------- */
@@ -643,19 +618,44 @@ document.addEventListener('input', e=>{
   atualizar();
 });
 
-// FORMATA o valor da linha base em 2 casas e recalcula tudo
+// ===== Distribui uma vez a partir da linha Base (N linhas)
+function distribuirAPartirDaBase(){
+  const rows = lerDist();
+  const base = rows.find(r => r.base);
+  if (!base) return;
+
+  const k_b = fatorRetorno(base);
+  const v_b = base.valor;
+  if (!(k_b > 0 && v_b > 0)) return;
+
+  rows.forEach(r=>{
+    if (r === base) return;
+    const k_j = fatorRetorno(r);
+    if (k_j > 0){
+      const v_j = (k_b * v_b) / k_j;
+      const inp = r.tr.querySelector('.valor');
+      if (inp){
+        inp.value = (isFinite(v_j) ? v_j : 0).toFixed(2);
+        r.valor = parseFloat(inp.value) || 0;
+      }
+    }
+  });
+}
+
+/// Ao selecionar a Base: formata a linha e distribui UMA vez; depois só recalcula
 document.addEventListener('change', e=>{
   if (abaAtual==='dist' && e.target.classList.contains('base')){
     const tr = e.target.closest('tr');
     const valInput = tr.querySelector('.valor');
 
-    // se tiver algo digitado (ex.: "2"), vira "2.00" (navegadores pt-BR exibem "2,00")
+    // "2" -> "2,00"
     if (valInput && valInput.value !== ''){
       const num = parseFloat(String(valInput.value).replace(',', '.'));
       if (!isNaN(num)) valInput.value = num.toFixed(2);
     }
 
-    // recalcula (e, no caso 2 linhas, preenche a outra automaticamente)
+    // Distribui apenas agora; futuras digitações não serão sobrescritas
+    distribuirAPartirDaBase();
     atualizarDist();
   }
 });
